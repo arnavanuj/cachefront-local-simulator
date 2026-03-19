@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: cachefront-dashboards
+    orgId: 1
+    folder: CacheFront
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
