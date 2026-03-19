@@ -9,7 +9,6 @@ from mysql.connector import pooling
 
 from metrics import DB_READS
 
-
 LOGGER = logging.getLogger("cachefront.api.db")
 REPLICA_LAG_SECONDS = float(os.getenv("REPLICA_LAG_SECONDS", "0"))
 

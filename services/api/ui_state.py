@@ -5,7 +5,6 @@ from typing import Any
 
 from redis import Redis
 
-
 UI_EVENTS_KEY = "ui:events"
 UI_LAST_FLOW_KEY = "ui:last_flow"
 UI_STATE_KEY = "ui:last_state"

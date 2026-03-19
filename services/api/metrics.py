@@ -1,7 +1,6 @@
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from starlette.responses import Response
 
-
 CACHE_HITS = Counter("cache_hits_total", "Total number of cache hits")
 CACHE_MISSES = Counter("cache_misses_total", "Total number of cache misses")
 DB_READS = Counter("db_reads_total", "Total number of database reads")

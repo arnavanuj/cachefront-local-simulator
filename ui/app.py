@@ -9,7 +9,6 @@ import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-
 ROOT = Path(__file__).resolve().parents[1]
 API_BASE_URL = os.getenv("CACHEFRONT_API_URL", "http://localhost:8000")
 DEFAULT_USER_ID = int(os.getenv("CACHEFRONT_DEFAULT_USER_ID", "1"))
@@ -81,7 +80,11 @@ def call_api(method: str, path: str, payload: dict[str, Any] | None = None) -> t
             data = build_unavailable_response("The backend returned an unexpected response.")
         if response.ok:
             return True, data
-        return False, data if isinstance(data, dict) else build_unavailable_response("The backend request could not be completed.")
+        return False, (
+            data
+            if isinstance(data, dict)
+            else build_unavailable_response("The backend request could not be completed.")
+        )
     except requests.RequestException:
         return False, build_unavailable_response("Unable to reach backend services right now.")
 
@@ -119,7 +122,7 @@ def get_compose_status() -> str:
 
 
 def render_badge(text: str, color: str) -> str:
-    return f'''
+    return f"""
     <div style="
         display:inline-block;
         padding:6px 12px;
@@ -133,7 +136,7 @@ def render_badge(text: str, color: str) -> str:
     ">
         {text}
     </div>
-    '''
+    """
 
 
 def status_badge(label: str, color: str) -> str:
@@ -228,7 +231,9 @@ def render_cache_card(cache_state: dict[str, Any] | None, db_value: dict[str, An
     is_invalidated = cache_state.get("status") != "fresh" or not cache_value
 
     st.markdown(
-        render_badge("Invalidated: Yes" if is_invalidated else "Invalidated: No", "#b42318" if is_invalidated else "#177245"),
+        render_badge(
+            "Invalidated: Yes" if is_invalidated else "Invalidated: No", "#b42318" if is_invalidated else "#177245"
+        ),
         unsafe_allow_html=True,
     )
     st.caption(f"Key: {cache_state.get('key')}")
@@ -300,7 +305,6 @@ def run_app() -> None:
         st.session_state.is_switching_mode,
         compose_status,
     )
-    alert_state = get_alert_state_cached()
     db_state = ensure_dict(state.get("db_state"), context="ui_state.db_state") if state else {}
     cache_state = ensure_dict(state.get("cache_state"), context="ui_state.cache_state") if state else {}
     cache_value = ensure_dict(cache_state.get("value"), context="ui_state.cache_state.value") if cache_state else {}
@@ -309,7 +313,12 @@ def run_app() -> None:
     with st.sidebar:
         st.title("Control Center")
         st.markdown(status_badge(f"System Status: {system_status_label}", system_status_color), unsafe_allow_html=True)
-        st.markdown(render_badge("Cache healthy" if cache_healthy else "Cache stale", "#177245" if cache_healthy else "#b42318"), unsafe_allow_html=True)
+        st.markdown(
+            render_badge(
+                "Cache healthy" if cache_healthy else "Cache stale", "#177245" if cache_healthy else "#b42318"
+            ),
+            unsafe_allow_html=True,
+        )
         st.caption(compose_status)
         explain_mode = st.toggle("Explain Mode", value=True)
         auto_refresh = st.toggle("Auto refresh", value=True)
@@ -342,7 +351,9 @@ def run_app() -> None:
     previous_backend_mode = st.session_state.get("last_backend_cache_mode")
 
     if "selected_cache_mode" not in st.session_state:
-        st.session_state.selected_cache_mode = current_cache_mode if current_cache_mode in CACHE_MODE_OPTIONS else CACHE_MODE_OPTIONS[0]
+        st.session_state.selected_cache_mode = (
+            current_cache_mode if current_cache_mode in CACHE_MODE_OPTIONS else CACHE_MODE_OPTIONS[0]
+        )
 
     if current_cache_mode in CACHE_MODE_OPTIONS:
         if previous_backend_mode is None or current_cache_mode != previous_backend_mode:
@@ -354,7 +365,9 @@ def run_app() -> None:
     with st.sidebar:
         st.divider()
         st.subheader("Cache Mode")
-        st.markdown(status_badge(current_cache_mode.upper(), mode_badge_color(current_cache_mode)), unsafe_allow_html=True)
+        st.markdown(
+            status_badge(current_cache_mode.upper(), mode_badge_color(current_cache_mode)), unsafe_allow_html=True
+        )
         st.caption("TTL expires cache entries by time. CDC keeps keys hot and invalidates them from the change stream.")
         st.warning("Switching modes invalidates cached user entries and changes consistency behavior immediately.")
         st.checkbox(
@@ -414,21 +427,30 @@ def run_app() -> None:
     with left:
         st.subheader("Database Control Panel")
         explain(
-            "Insert creates a new MySQL row. Update modifies the existing row. Both actions start a CDC flow that the UI tracks across the pipeline.",
+            "Insert creates a new MySQL row. Update modifies the existing row. "
+            "Both actions start a CDC flow that the UI tracks across the pipeline.",
             explain_mode,
         )
         with st.form("db-control"):
-            user_id = st.number_input("user_id", min_value=1, value=st.session_state.selected_user_id, step=1, disabled=controls_disabled)
+            user_id = st.number_input(
+                "user_id", min_value=1, value=st.session_state.selected_user_id, step=1, disabled=controls_disabled
+            )
             name = st.text_input("name", value="Ada Lovelace", disabled=controls_disabled)
             email = st.text_input("email", value="ada@example.com", disabled=controls_disabled)
             status = st.selectbox("status", ["active", "inactive", "suspended"], index=0, disabled=controls_disabled)
             insert_col, update_col = st.columns(2)
-            insert_clicked = insert_col.form_submit_button("INSERT", use_container_width=True, disabled=controls_disabled)
-            update_clicked = update_col.form_submit_button("UPDATE", use_container_width=True, disabled=controls_disabled)
+            insert_clicked = insert_col.form_submit_button(
+                "INSERT", use_container_width=True, disabled=controls_disabled
+            )
+            update_clicked = update_col.form_submit_button(
+                "UPDATE", use_container_width=True, disabled=controls_disabled
+            )
 
         if insert_clicked:
             st.session_state.selected_user_id = int(user_id)
-            ok, data = call_api("POST", f"/user/{int(user_id)}/insert", {"name": name, "email": email, "status": status})
+            ok, data = call_api(
+                "POST", f"/user/{int(user_id)}/insert", {"name": name, "email": email, "status": status}
+            )
             st.session_state.last_action_feedback = (ok, data)
             fetch_ui_state.clear()
             st.rerun()
@@ -463,7 +485,9 @@ def run_app() -> None:
             ok, output = run_docker_command(["down"])
             (st.success if ok else st.error)("System stop completed." if ok else "System stop failed.")
             st.code(output or "No output")
-        if rebuild_col.button("Rebuild System", use_container_width=True, disabled=not st.session_state.docker_warning_ack):
+        if rebuild_col.button(
+            "Rebuild System", use_container_width=True, disabled=not st.session_state.docker_warning_ack
+        ):
             ok, output = run_docker_command(["build"])
             (st.success if ok else st.error)("System rebuild completed." if ok else "System rebuild failed.")
             st.code(output or "No output")
@@ -471,12 +495,15 @@ def run_app() -> None:
     with right:
         st.subheader("Cache Observability Panel")
         explain(
-            "Green means Redis currently holds the user key. Red means the key is absent or has been invalidated, so the next read will repopulate from MySQL.",
+            "Green means Redis currently holds the user key. Red means the key "
+            "is absent or has been invalidated, so the next read will repopulate "
+            "from MySQL.",
             explain_mode,
         )
         if controls_disabled:
             st.info(
-                "Cache observability is temporarily unavailable while services are starting or a cache mode switch is in progress."
+                "Cache observability is temporarily unavailable while services "
+                "are starting or a cache mode switch is in progress."
             )
         else:
             read_col, inspect_col = st.columns(2)
@@ -500,7 +527,9 @@ def run_app() -> None:
 
     st.subheader("CDC Pipeline Visualization")
     explain(
-        "After a write hits MySQL, Debezium captures the binlog change, Kafka transports it, the CDC consumer handles it, and Redis invalidates the key so future reads are fresh.",
+        "After a write hits MySQL, Debezium captures the binlog change, "
+        "Kafka transports it, the CDC consumer handles it, and Redis "
+        "invalidates the key so future reads are fresh.",
         explain_mode,
     )
     if controls_disabled:
@@ -541,7 +570,3 @@ except Exception as exc:
     )
     with st.expander("Show technical details"):
         st.code(str(exc))
-
-
-
-

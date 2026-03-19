@@ -5,7 +5,6 @@ from typing import Any
 
 from redis import Redis
 
-
 LOGGER = logging.getLogger("cachefront.api.cache")
 
 

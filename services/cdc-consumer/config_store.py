@@ -5,7 +5,6 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-
 LOGGER = logging.getLogger("cachefront.cdc-consumer.config")
 VALID_CACHE_MODES = {"ttl", "cdc"}
 _CONFIG_LOCK = Lock()

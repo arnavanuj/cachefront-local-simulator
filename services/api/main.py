@@ -106,8 +106,14 @@ cache = UserCache(
 
 
 EXPLAINERS = {
-    "cdc": "Change Data Capture streams committed database changes into Kafka so downstream systems can invalidate cache without guessing with TTLs.",
-    "redis_invalidation": "Redis keys are deleted after the CDC consumer sees the database change event, so the next read repopulates the cache with fresh data.",
+    "cdc": (
+        "Change Data Capture streams committed database changes into Kafka so "
+        "downstream systems can invalidate cache without guessing with TTLs."
+    ),
+    "redis_invalidation": (
+        "Redis keys are deleted after the CDC consumer sees the database "
+        "change event, so the next read repopulates the cache with fresh data."
+    ),
     "cache_hit": "A cache hit means the API served data directly from Redis instead of reading MySQL.",
     "cache_miss": "A cache miss means Redis had no entry, so the API read from MySQL and repopulated the cache.",
 }
@@ -263,7 +269,11 @@ def update_cache_mode(payload: CacheModeUpdateRequest) -> dict[str, Any]:
             stage="SYSTEM",
             message=f"Cache mode changed from {previous_mode} to {cache.config.mode}",
             event_type="config",
-            details={"previous_mode": previous_mode, "new_mode": cache.config.mode, "invalidated_keys": invalidated_keys},
+            details={
+                "previous_mode": previous_mode,
+                "new_mode": cache.config.mode,
+                "invalidated_keys": invalidated_keys,
+            },
         )
         LOGGER.info(
             "cache_mode_changed previous=%s current=%s invalidated_keys=%s",
@@ -390,16 +400,31 @@ def read_user_for_ui(user_id: int) -> dict[str, Any]:
 
 
 @app.get("/ui/state")
-def get_ui_state(user_id: int | None = Query(default=None), limit: int = Query(default=15, ge=1, le=50)) -> dict[str, Any]:
+def get_ui_state(
+    user_id: int | None = Query(default=None),
+    limit: int = Query(default=15, ge=1, le=50),
+) -> dict[str, Any]:
     target_user_id = user_id
     if target_user_id is None:
         last_flow = get_last_flow(redis_client)
         target_user_id = last_flow.get("user_id")
 
-    cache_state = get_cache_snapshot(target_user_id, source="ui_state", record=False) if target_user_id is not None else None
+    cache_state = (
+        get_cache_snapshot(
+            target_user_id,
+            source="ui_state",
+            record=False,
+        )
+        if target_user_id is not None
+        else None
+    )
     if cache_state and isinstance(cache_state.get("value"), dict):
         cache_state = {**cache_state, "value": normalize_record_timestamps(cache_state.get("value"))}
-    db_state = normalize_record_timestamps(fetch_user(target_user_id, apply_replica_lag=False)) if target_user_id is not None else None
+    db_state = (
+        normalize_record_timestamps(fetch_user(target_user_id, apply_replica_lag=False))
+        if target_user_id is not None
+        else None
+    )
     return {
         "cache_mode": sync_cache_mode_from_store(),
         "explainers": EXPLAINERS,
@@ -409,5 +434,3 @@ def get_ui_state(user_id: int | None = Query(default=None), limit: int = Query(d
         "db_state": db_state,
         "events": get_events(redis_client, limit=limit),
     }
-
-
