@@ -1,0 +1,232 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: cachefront-mysql
+    command:
+      - --server-id=223344
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: appdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./seed_data.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: cachefront-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: cachefront-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: cachefront-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics --bootstrap-server localhost:9092 --list > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  debezium:
+    image: debezium/connect:2.7.3.Final
+    container_name: cachefront-debezium
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: debezium_connect_configs
+      OFFSET_STORAGE_TOPIC: debezium_connect_offsets
+      STATUS_STORAGE_TOPIC: debezium_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD", "bash", "-c", ": > /dev/tcp/127.0.0.1/8083"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  connector-bootstrap:
+    image: curlimages/curl:8.7.1
+    container_name: cachefront-connector-bootstrap
+    depends_on:
+      debezium:
+        condition: service_healthy
+    volumes:
+      - ./scripts/register-connector.sh:/scripts/register-connector.sh:ro
+    entrypoint: ["sh", "/scripts/register-connector.sh"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./services/api
+    container_name: cachefront-api
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      CACHE_MODE: ${CACHE_MODE:-ttl}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      CACHE_CONFIG_PATH: /runtime/cache_config.json
+      REPLICA_LAG_SECONDS: ${REPLICA_LAG_SECONDS:-0}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: appdb
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./runtime-config:/runtime
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ui:
+    build:
+      context: ./ui
+    container_name: cachefront-ui
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      CACHEFRONT_API_URL: http://api:8000
+      CACHEFRONT_DEFAULT_USER_ID: ${CACHEFRONT_DEFAULT_USER_ID:-1}
+    ports:
+      - "8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  cdc-consumer:
+    build:
+      context: ./services/cdc-consumer
+    container_name: cachefront-cdc-consumer
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      connector-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      CACHE_MODE: ${CACHE_MODE:-ttl}
+      CACHE_CONFIG_PATH: /runtime/cache_config.json
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: cachefront.appdb.users
+      KAFKA_GROUP_ID: cachefront-cdc-consumer
+      CDC_METRICS_PORT: 9101
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+    volumes:
+      - ./runtime-config:/runtime
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: cachefront-prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+      cdc-consumer:
+        condition: service_started
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: cachefront-grafana
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+      GF_SECURITY_COOKIE_SAMESITE: none
+    volumes:
+      - ./monitoring/grafana/dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+
+  load-generator:
+    build:
+      context: ./services/load-generator
+    container_name: cachefront-load-generator
+    profiles: ["tools"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      TARGET_URL: http://api:8000
+      USER_IDS: 1,2,3,4,5
+      THREADS: 20
+      REQUESTS: 500
+      WRITE_EVERY: 0
+
+volumes:
+  mysql_data:
