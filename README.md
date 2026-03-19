@@ -278,7 +278,5 @@ Before pushing changes, validate that:
 - TTL and CDC scenarios both behave correctly
 - there are no broken imports or hardcoded local machine paths
 
-## License
 
-Add a license file if you want to open-source the project formally.
 
